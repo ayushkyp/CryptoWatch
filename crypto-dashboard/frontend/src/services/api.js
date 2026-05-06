@@ -8,7 +8,7 @@ const api = axios.create({
   baseURL: resolvedApiBase,
 });
 
-export default api;
+
 // Attach JWT token to every request
 api.interceptors.request.use(
   (config) => {
