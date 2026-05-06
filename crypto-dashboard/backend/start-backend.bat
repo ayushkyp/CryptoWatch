@@ -1,0 +1,6 @@
+@echo off
+echo Killing processes on port 5000...
+For /F "tokens=5" %%a in ('netstat -aon ^| findstr ":5000 "') do taskkill /PID %%a /F 2>nul
+timeout /t 1 /nobreak >nul
+echo Starting Backend Server...
+node server.js

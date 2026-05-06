@@ -1,0 +1,178 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================
+   CSS CUSTOM PROPERTIES
+   ============================================================ */
+:root {
+  --bg-primary:   #0f0f1a;
+  --bg-card:      #1a1a2e;
+  --bg-card2:     #16213e;
+  --bg-chip:      #2a2a4a;
+  --border:       #2a2a4a;
+  --border2:      #3a3a5a;
+  --text-primary: #f1f5f9;
+  --text-muted:   #94a3b8;
+  --text-faint:   #64748b;
+}
+
+html.light {
+  --bg-primary:   #f0f4f8;
+  --bg-card:      #ffffff;
+  --bg-card2:     #f8fafc;
+  --bg-chip:      #e2e8f0;
+  --border:       #d1d5db;
+  --border2:      #cbd5e1;
+  --text-primary: #0f172a;
+  --text-muted:   #475569;
+  --text-faint:   #94a3b8;
+}
+
+/* Base */
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: 'Inter', sans-serif;
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+/* ============================================================
+   LIGHT MODE OVERRIDES
+   CSS attribute selector: inside quotes, [ ] # are literal chars.
+   These selectors match the exact Tailwind arbitrary-value
+   class strings present in the HTML class attributes.
+   ============================================================ */
+
+/* --- Backgrounds --- */
+html.light [class*="bg-[#0f0f1a]"] { background-color: var(--bg-primary) !important; }
+html.light [class*="bg-[#1a1a2e]"] { background-color: var(--bg-card)    !important; }
+html.light [class*="bg-[#16213e]"] { background-color: var(--bg-card2)   !important; }
+html.light [class*="bg-[#2a2a4a]"] { background-color: var(--bg-chip)    !important; }
+html.light [class*="bg-[#3a3a5a]"] { background-color: var(--border2)    !important; }
+
+/* --- Borders --- */
+html.light [class*="border-[#2a2a4a]"] { border-color: var(--border)  !important; }
+html.light [class*="border-[#3a3a5a]"] { border-color: var(--border2) !important; }
+
+/* --- Hover backgrounds --- */
+html.light [class*="hover:bg-[#16213e]"]:hover { background-color: var(--bg-card2) !important; }
+html.light [class*="hover:bg-[#2a2a4a]"]:hover { background-color: var(--bg-chip)  !important; }
+html.light [class*="hover:bg-[#3a3a5a]"]:hover { background-color: var(--border2)  !important; }
+
+/* --- Text --- */
+html.light .text-white  { color: var(--text-primary) !important; }
+html.light .text-slate-400 { color: var(--text-muted) !important; }
+html.light .text-slate-500 { color: var(--text-faint) !important; }
+html.light .placeholder-slate-500::placeholder { color: var(--text-faint) !important; }
+
+/* --- Inputs --- */
+html.light input, html.light textarea, html.light select {
+  background-color: var(--bg-card) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border) !important;
+}
+
+/* --- Navbar / sidebar --- */
+html.light nav {
+  background-color: var(--bg-card) !important;
+  border-bottom-color: var(--border) !important;
+}
+html.light aside {
+  background-color: var(--bg-card) !important;
+  border-right-color: var(--border) !important;
+}
+
+/* --- Scrollbar light mode --- */
+html.light ::-webkit-scrollbar-track { background: var(--bg-card2); }
+html.light ::-webkit-scrollbar-thumb { background: var(--border); }
+
+/* ============================================================
+   LIVE TILE COLOR GRADING (UP/DOWN)
+   ============================================================ */
+.live-price-tile {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.live-price-tile::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 1;
+  transition: opacity 0.2s ease;
+}
+
+.live-price-tile > * {
+  position: relative;
+  z-index: 1;
+}
+
+.live-price-tile-up {
+  border-color: rgba(16, 185, 129, 0.45) !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(16, 185, 129, 0.08);
+}
+
+.live-price-tile-up::before {
+  background:
+    radial-gradient(120% 90% at 0% 100%, rgba(16, 185, 129, 0.20), transparent 60%),
+    linear-gradient(135deg, rgba(16, 185, 129, 0.10), rgba(16, 185, 129, 0.03));
+}
+
+.live-price-tile-down {
+  border-color: rgba(239, 68, 68, 0.45) !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(239, 68, 68, 0.08);
+}
+
+.live-price-tile-down::before {
+  background:
+    radial-gradient(120% 90% at 0% 100%, rgba(239, 68, 68, 0.20), transparent 60%),
+    linear-gradient(135deg, rgba(239, 68, 68, 0.10), rgba(239, 68, 68, 0.03));
+}
+
+html.light .live-price-tile-up {
+  border-color: rgba(5, 150, 105, 0.42) !important;
+  box-shadow: 0 8px 20px rgba(16, 24, 40, 0.10), 0 0 0 1px rgba(5, 150, 105, 0.08);
+}
+
+html.light .live-price-tile-up::before {
+  background:
+    radial-gradient(120% 90% at 0% 100%, rgba(16, 185, 129, 0.14), transparent 62%),
+    linear-gradient(135deg, rgba(16, 185, 129, 0.08), rgba(16, 185, 129, 0.02));
+}
+
+html.light .live-price-tile-down {
+  border-color: rgba(220, 38, 38, 0.40) !important;
+  box-shadow: 0 8px 20px rgba(16, 24, 40, 0.10), 0 0 0 1px rgba(220, 38, 38, 0.08);
+}
+
+html.light .live-price-tile-down::before {
+  background:
+    radial-gradient(120% 90% at 0% 100%, rgba(239, 68, 68, 0.13), transparent 62%),
+    linear-gradient(135deg, rgba(239, 68, 68, 0.08), rgba(239, 68, 68, 0.02));
+}
+
+/* ============================================================
+   DARK MODE SCROLLBAR (default)
+   ============================================================ */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #1a1a2e; }
+::-webkit-scrollbar-thumb { background: #2a2a4a; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #3b82f6; }
+
+/* ============================================================
+   PRICE FLASH ANIMATIONS
+   ============================================================ */
+@keyframes flashGreen {
+  0%   { background-color: rgba(34, 197, 94, 0.3); }
+  100% { background-color: transparent; }
+}
+@keyframes flashRed {
+  0%   { background-color: rgba(239, 68, 68, 0.3); }
+  100% { background-color: transparent; }
+}
+.flash-green { animation: flashGreen 0.8s ease-out; }
+.flash-red   { animation: flashRed   0.8s ease-out; }
