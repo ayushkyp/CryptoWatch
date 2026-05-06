@@ -1,13 +1,14 @@
 import axios from 'axios';
 
 const resolvedApiBase =
-  process.env.REACT_APP_API_URL ||
-  (process.env.NODE_ENV === 'production' ? '/api' : 'cryptowatch-production.up.railway.app');
+  import.meta.env.VITE_API_URL ||
+  'https://cryptowatch-production.up.railway.app/api';
 
 const api = axios.create({
   baseURL: resolvedApiBase,
 });
 
+export default api;
 // Attach JWT token to every request
 api.interceptors.request.use(
   (config) => {
