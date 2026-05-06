@@ -21,8 +21,6 @@ const AlertModal = ({
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
 
-  if (!isOpen) return null;
-
   const canSelectCoin = coinOptions.length > 0 && typeof onCoinChange === 'function';
 
   const filteredCoinOptions = useMemo(() => {
@@ -37,6 +35,8 @@ const AlertModal = ({
       .slice(0, 20);
   }, [coinOptions, search, canSelectCoin]);
 
+  if (!isOpen) return null;
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!targetPrice || isNaN(Number(targetPrice))) return;
@@ -44,6 +44,7 @@ const AlertModal = ({
     try {
       await onSubmit({
         coin: coin.id,
+        symbol: coin.symbol,
         coinName: coin.name,
         condition,
         targetPrice: Number(targetPrice),

@@ -1,4 +1,15 @@
 const Alert = require('../models/Alert');
+const { TRACKED_COINS } = require('../config/trackedCoins');
+
+const ID_TO_SYMBOL = TRACKED_COINS.reduce((acc, coin) => {
+  acc[coin.id] = coin.symbol;
+  return acc;
+}, {});
+
+const normalizeSymbol = (symbol, coin) => {
+  const raw = String(symbol || ID_TO_SYMBOL[coin] || coin || '').trim().toUpperCase();
+  return raw.endsWith('USDT') ? raw.replace(/USDT$/, '') : raw;
+};
 
 const getAlerts = async (req, res) => {
   try {
@@ -12,21 +23,25 @@ const getAlerts = async (req, res) => {
 
 const createAlert = async (req, res) => {
   try {
-    const { coin, coinName, targetPrice, condition } = req.body;
+    const { coin, symbol, coinName, targetPrice, condition } = req.body;
+    const numericTargetPrice = Number(targetPrice);
 
-    if (!coin || !coinName || !targetPrice || !condition) {
-      return res.status(400).json({ message: 'All fields are required' });
+    if (!symbol || !coinName || !condition || !Number.isFinite(numericTargetPrice) || numericTargetPrice <= 0) {
+      return res.status(400).json({ message: 'symbol, coinName, condition and positive targetPrice are required' });
     }
 
     if (!['above', 'below'].includes(condition)) {
       return res.status(400).json({ message: 'Condition must be above or below' });
     }
 
+    const normalizedSymbol = normalizeSymbol(symbol, coin);
+
     const alert = await Alert.create({
       userId: req.userId,
-      coin,
+      coin: coin || String(symbol).toLowerCase(),
+      symbol: normalizedSymbol,
       coinName,
-      targetPrice: Number(targetPrice),
+      targetPrice: numericTargetPrice,
       condition,
     });
 

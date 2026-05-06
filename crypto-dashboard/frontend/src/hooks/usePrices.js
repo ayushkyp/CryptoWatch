@@ -5,6 +5,7 @@ import { useSocketContext } from '../context/SocketContext';
 const usePrices = () => {
   const socket = useSocketContext();
   const [prices, setPrices] = useState([]);
+  const [priceMap, setPriceMap] = useState({});
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState(null);
   const mountedRef = useRef(true);
@@ -21,6 +22,12 @@ const usePrices = () => {
         const res = await getCurrentPrices();
         if (mountedRef.current) {
           const data = Array.isArray(res.data) ? res.data : (res.data.prices || []);
+          const normalizedMap = data.reduce((acc, coin) => {
+            const key = coin.binanceSymbol || `${coin.symbol}USDT`;
+            acc[key] = coin;
+            return acc;
+          }, {});
+          setPriceMap(normalizedMap);
           setPrices(data);
           setLastUpdated(new Date());
         }
@@ -35,21 +42,28 @@ const usePrices = () => {
 
   // Live updates via WebSocket
   useEffect(() => {
-    const handlePriceUpdate = (updatedPrices) => {
+    const handleLivePrices = (updatedPricesMap) => {
       if (!mountedRef.current) return;
-      const data = Array.isArray(updatedPrices) ? updatedPrices : (updatedPrices.prices || []);
+
+      const mapPayload =
+        updatedPricesMap && typeof updatedPricesMap === 'object' && !Array.isArray(updatedPricesMap)
+          ? updatedPricesMap
+          : {};
+      const data = Object.values(mapPayload);
+
+      setPriceMap(mapPayload);
       setPrices(data);
       setLoading(false);
       setLastUpdated(new Date());
     };
 
-    socket.on('priceUpdate', handlePriceUpdate);
+    socket.on('livePrices', handleLivePrices);
     return () => {
-      socket.off('priceUpdate', handlePriceUpdate);
+      socket.off('livePrices', handleLivePrices);
     };
   }, [socket]);
 
-  return { prices, loading, lastUpdated };
+  return { prices, priceMap, loading, lastUpdated };
 };
 
 export default usePrices;

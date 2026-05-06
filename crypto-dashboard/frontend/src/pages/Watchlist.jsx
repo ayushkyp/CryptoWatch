@@ -17,9 +17,18 @@ const Watchlist = () => {
     const fetchWatchlist = async () => {
       try {
         const res = await getWatchlist();
-        setWatchlist(res.data.watchlist);
-      } catch {
-        toast.error('Failed to load watchlist');
+        const list = Array.isArray(res?.data?.watchlist) ? res.data.watchlist : [];
+        setWatchlist([...new Set(list)]);
+      } catch (err) {
+        // Suppress toast on auth/missing-user errors — interceptor/AuthContext handles redirect
+        const status = err?.response?.status;
+        if (status && (status === 401 || status === 403 || status === 404)) {
+          // silently handled upstream
+        } else if (!status) {
+          // network error — backend may be down, don't spam toast in StrictMode double-invoke
+        } else {
+          toast.error('Failed to load watchlist');
+        }
       } finally {
         setFetchingWatchlist(false);
       }
@@ -40,18 +49,24 @@ const Watchlist = () => {
       await removeFromWatchlist(coinId);
       setWatchlist((prev) => prev.filter((c) => c !== coinId));
       toast.success('Removed from watchlist');
-    } catch {
-      toast.error('Failed to remove from watchlist');
+    } catch (err) {
+      const status = err?.response?.status;
+      if (!status || (status !== 401 && status !== 403)) {
+        toast.error('Failed to remove from watchlist');
+      }
     }
   };
 
   const handleAdd = async (coinId) => {
     try {
       await addToWatchlist(coinId);
-      setWatchlist((prev) => [...prev, coinId]);
+      setWatchlist((prev) => [...new Set([...prev, coinId])]);
       toast.success('Added to watchlist');
-    } catch {
-      toast.error('Failed to add to watchlist');
+    } catch (err) {
+      const status = err?.response?.status;
+      if (!status || (status !== 401 && status !== 403)) {
+        toast.error('Failed to add to watchlist');
+      }
     }
   };
 
@@ -66,10 +81,10 @@ const Watchlist = () => {
   // Merge live prices with coin list to find all watchlisted coins
   const watchedCoins = useMemo(() => {
     return watchlist
-      .map((id) => {
-        const live = prices.find((p) => p.id === id);
+      .map((symbol) => {
+        const live = prices.find((p) => p.symbol === symbol || p.id === symbol);
         if (live) return live;
-        return coinList.find((c) => c.id === id) || null;
+        return coinList.find((c) => c.symbol === symbol || c.id === symbol) || null;
       })
       .filter(Boolean);
   }, [watchlist, prices, coinList]);
@@ -97,20 +112,15 @@ const Watchlist = () => {
           message="Your watchlist is empty. Add coins from the Dashboard to track them here."
         />
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {watchedCoins.map((coin) => (
-            <div key={coin.id} className="group relative">
-              <AssetCard
-                coin={coin}
-                onAddToWatchlist={handleToggle}
-                isInWatchlist={true}
-              />
-              {/* Remove button — overlaid at bottom, visible on hover */}
+            <div key={coin.symbol} className="rounded-2xl border border-cyan-400/15 bg-gradient-to-br from-cyan-400/5 via-transparent to-emerald-400/5 p-1 shadow-xl shadow-black/30">
+              <AssetCard coin={coin} onAddToWatchlist={handleToggle} isInWatchlist={true} />
               <button
-                onClick={(e) => { e.stopPropagation(); handleRemove(coin.id); }}
-                className="absolute bottom-3 right-3 opacity-0 group-hover:opacity-100 bg-red-500/20 text-red-400 border border-red-500/30 px-2.5 py-1 rounded-lg text-xs font-medium hover:bg-red-500/30 transition-all duration-200"
+                onClick={(e) => { e.stopPropagation(); handleRemove(coin.symbol); }}
+                className="mt-2 w-full bg-[#2a2a4a] text-slate-300 border border-[#3a3a5a] px-3 py-2 rounded-xl text-sm font-medium hover:bg-[#3a3a5a] transition-all"
               >
-                Remove
+                Remove from Watchlist
               </button>
             </div>
           ))}

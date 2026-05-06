@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { login as loginAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import socket from '../services/socket';
 
 const Login = () => {
   const navigate = useNavigate();
@@ -20,6 +21,12 @@ const Login = () => {
     try {
       const res = await loginAPI(form);
       login(res.data.token, res.data.user);
+
+      const userId = res.data?.user?._id || res.data?.user?.id;
+      if (socket.connected && userId) {
+        socket.emit('authenticate', userId);
+      }
+
       toast.success('Welcome back!');
       navigate('/');
     } catch (err) {

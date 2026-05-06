@@ -43,7 +43,8 @@ export const AuthProvider = ({ children }) => {
           }
         } catch (err) {
           const status = err?.response?.status;
-          if (!cancelled && (status === 401 || status === 403)) {
+          // 401/403 = token invalid/forbidden; 404 = user no longer exists in DB
+          if (!cancelled && (status === 401 || status === 403 || status === 404)) {
             localStorage.removeItem('token');
             localStorage.removeItem('user');
             setToken(null);

@@ -6,12 +6,15 @@ const Alert = require('../models/Alert');
  * a threshold, not on a separate polling schedule. There is zero latency
  * between price update and alert notification.
  */
-const checkAlerts = async (prices, io) => {
+const checkAlerts = async (pricesBySymbol, io) => {
   try {
     const activeAlerts = await Alert.find({ status: 'active' });
 
     for (const alert of activeAlerts) {
-      const coinData = prices.find((p) => p.id === alert.coin);
+      const normalizedSymbol = String(alert.symbol || alert.coin || '').toUpperCase();
+      const pairSymbol = normalizedSymbol.endsWith('USDT') ? normalizedSymbol : `${normalizedSymbol}USDT`;
+
+      const coinData = pricesBySymbol[pairSymbol];
       if (!coinData) continue;
 
       const currentPrice = coinData.price;
@@ -28,19 +31,27 @@ const checkAlerts = async (prices, io) => {
         alert.triggeredAt = new Date();
         await alert.save();
 
-        // Emit to the specific user's socket room (or broadcast if no rooms)
-        io.emit('alertTriggered', {
+        const alertPayload = {
           alertId: alert._id,
           userId: alert.userId,
           coin: alert.coin,
           coinName: alert.coinName,
+          symbol: alert.symbol,
           condition: alert.condition,
           targetPrice: alert.targetPrice,
           currentPrice,
           triggeredAt: alert.triggeredAt,
-        });
+        };
 
-        console.log(`Alert triggered: ${alert.coinName} ${alert.condition} ${alert.targetPrice}`);
+        // Emit to specific user's room if available, otherwise broadcast
+        if (alert.userId) {
+          const userRoom = `user:${alert.userId}`;
+          io.to(userRoom).emit('alertTriggered', alertPayload);
+          console.log(`Alert triggered for user ${alert.userId}: ${alert.coinName} ${alert.condition} ${alert.targetPrice}`);
+        } else {
+          io.emit('alertTriggered', alertPayload);
+          console.log(`Alert triggered (broadcast): ${alert.coinName} ${alert.condition} ${alert.targetPrice}`);
+        }
       }
     }
   } catch (error) {

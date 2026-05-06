@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
-  LineChart,
-  Line,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -11,14 +11,14 @@ import {
 import { getPriceHistory } from '../../services/api';
 
 const formatINR = (price) => {
-  if (!price && price !== 0) return '₹0';
+  if (!Number.isFinite(price)) return '₹0';
   if (price >= 10000000) return `₹${(price / 10000000).toFixed(2)}Cr`;
   if (price >= 100000) return `₹${(price / 100000).toFixed(2)}L`;
   if (price >= 1000) return `₹${price.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
   return `₹${price.toFixed(4)}`;
 };
 
-const formatDate = (isoString, days) => {
+const formatLabel = (isoString, days) => {
   const date = new Date(isoString);
   if (days <= 7) {
     return date.toLocaleString('en-IN', {
@@ -28,64 +28,81 @@ const formatDate = (isoString, days) => {
       minute: '2-digit',
     });
   }
+
   return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 };
 
-const CustomTooltip = ({ active, payload, label }) => {
-  if (active && payload && payload.length) {
-    return (
-      <div className="bg-[#1a1a2e] border border-[#2a2a4a] rounded-xl p-3 shadow-lg">
-        <p className="text-slate-400 text-xs mb-1">{label}</p>
-        <p className="text-blue-400 font-bold">{formatINR(payload[0].value)}</p>
-      </div>
-    );
-  }
-  return null;
-};
-
-export default function PriceChart({ coinId }) {
-  const [data, setData] = useState([]);
+const PriceChart = ({ symbol }) => {
   const [days, setDays] = useState(7);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-
-  const fetchHistory = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await getPriceHistory(coinId, days);
-      const formatted = (response || []).map((item) => ({
-        date: formatDate(item.timestamp, days),
-        price: item.price,
-      }));
-      setData(formatted);
-    } catch (err) {
-      const status = err.response?.status;
-      if (status === 429) {
-        setError('Rate limit reached — data will load shortly. Click Retry in a moment.');
-      } else {
-        setError('Failed to load price history. Please try again.');
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [error, setError] = useState('');
+  const [rows, setRows] = useState([]);
 
   useEffect(() => {
-    if (coinId) fetchHistory();
-  }, [coinId, days]); // eslint-disable-line
+    let cancelled = false;
+
+    const load = async () => {
+      setLoading(true);
+      setError('');
+
+      try {
+        const response = await getPriceHistory(symbol, days);
+        const data = (Array.isArray(response) ? response : (response.data ? response.data : [])).map((row) => {
+          const close = Number(row.close || row.c || 0);
+          const high = Number(row.high || row.h || 0);
+          const low = Number(row.low || row.l || 0);
+          
+          if (!Number.isFinite(close) || close <= 0) {
+            console.warn('[PriceChart] Invalid price data:', row);
+            return null;
+          }
+          
+          return {
+            label: formatLabel(row.date, days),
+            close,
+            high: Number.isFinite(high) ? high : close,
+            low: Number.isFinite(low) ? low : close,
+            date: row.date,
+          };
+        }).filter(Boolean);
+
+        if (data.length === 0) {
+          if (!cancelled) setError('No historical data available for this period.');
+        } else {
+          if (!cancelled) setRows(data);
+        }
+      } catch (error) {
+        console.error('[PriceChart] History fetch error:', error);
+        if (!cancelled) setError(`Failed to load historical chart data. ${error.message}`);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    if (symbol) load();
+    return () => {
+      cancelled = true;
+    };
+  }, [symbol, days]);
+
+  const tickInterval = useMemo(() => {
+    if (rows.length <= 10) return 0;
+    return Math.floor(rows.length / 8);
+  }, [rows.length]);
 
   return (
-    <div className="bg-[#1a1a2e] border border-[#2a2a4a] rounded-2xl p-6">
-      <div className="flex items-center justify-between mb-6">
-        <h3 className="text-white font-semibold text-lg">Price History</h3>
+    <div className="rounded-2xl border border-[#2a2a4a] bg-[#1a1a2e] p-6">
+      <div className="mb-4 flex items-center justify-between">
+        <h3 className="text-lg font-semibold text-white">Historical Price</h3>
         <div className="flex gap-2">
           {[7, 30, 90].map((d) => (
             <button
               key={d}
               onClick={() => setDays(d)}
-              className={`px-3 py-1 rounded-lg text-sm font-medium transition ${
-                days === d ? 'bg-blue-600 text-white' : 'bg-[#2a2a4a] text-slate-400 hover:text-white'
+              className={`rounded-lg px-3 py-1 text-sm font-medium transition ${
+                d === days
+                  ? 'bg-gradient-to-r from-cyan-500 to-emerald-500 text-slate-950'
+                  : 'bg-[#2a2a4a] text-slate-300 hover:bg-[#3a3a5a]'
               }`}
             >
               {d}D
@@ -94,63 +111,67 @@ export default function PriceChart({ coinId }) {
         </div>
       </div>
 
-      {loading && (
-        <div className="h-64 flex items-center justify-center">
-          <div className="flex flex-col items-center gap-3">
-            <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-            <p className="text-slate-400 text-sm">Loading chart data...</p>
-          </div>
+      {loading && <div className="h-72 animate-pulse rounded-xl bg-[#2a2a4a]" />}
+
+      {!loading && error && (
+        <div className="flex h-72 items-center justify-center rounded-xl border border-red-500/30 bg-red-500/5 text-sm text-red-300">
+          {error}
         </div>
       )}
 
-      {error && !loading && (
-        <div className="h-64 flex flex-col items-center justify-center gap-3">
-          <p className="text-red-400 text-sm">{error}</p>
-          <button
-            onClick={fetchHistory}
-            className="text-xs bg-[#2a2a4a] text-slate-300 px-3 py-1.5 rounded-lg hover:bg-[#3a3a5a] transition"
-          >
-            Retry
-          </button>
+      {!loading && !error && rows.length === 0 && (
+        <div className="flex h-72 items-center justify-center rounded-xl border border-[#2a2a4a] text-sm text-slate-500">
+          No historical records available.
         </div>
       )}
 
-      {!loading && !error && data.length > 0 && (
-        <ResponsiveContainer width="100%" height={280}>
-          <LineChart data={data} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
+      {!loading && !error && rows.length > 0 && (
+        <ResponsiveContainer width="100%" height={300}>
+          <AreaChart data={rows} margin={{ top: 10, right: 16, left: 8, bottom: 0 }}>
+            <defs>
+              <linearGradient id="priceGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#06b6d4" stopOpacity={0.35} />
+                <stop offset="100%" stopColor="#06b6d4" stopOpacity={0} />
+              </linearGradient>
+            </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="#2a2a4a" />
             <XAxis
-              dataKey="date"
+              dataKey="label"
+              interval={tickInterval}
               tick={{ fill: '#94a3b8', fontSize: 11 }}
               tickLine={false}
               axisLine={false}
-              interval={Math.floor(data.length / 8)}
             />
             <YAxis
+              tickFormatter={(v) => formatINR(v)}
               tick={{ fill: '#94a3b8', fontSize: 11 }}
               tickLine={false}
               axisLine={false}
-              tickFormatter={(v) => formatINR(v)}
-              width={80}
+              width={85}
             />
-            <Tooltip content={<CustomTooltip />} />
-            <Line
+            <Tooltip
+              contentStyle={{
+                background: '#0f172a',
+                border: '1px solid #155e75',
+                borderRadius: '12px',
+                color: '#e2e8f0',
+              }}
+              formatter={(value) => formatINR(Number(value))}
+              labelFormatter={(_, payload) => payload?.[0]?.payload?.label || ''}
+            />
+            <Area
               type="monotone"
-              dataKey="price"
-              stroke="#3b82f6"
-              strokeWidth={2}
-              dot={false}
-              activeDot={{ r: 4, fill: '#3b82f6' }}
+              dataKey="close"
+              stroke="#22d3ee"
+              strokeWidth={2.5}
+              fill="url(#priceGradient)"
+              animationDuration={600}
             />
-          </LineChart>
+          </AreaChart>
         </ResponsiveContainer>
-      )}
-
-      {!loading && !error && data.length === 0 && (
-        <div className="h-64 flex items-center justify-center">
-          <p className="text-slate-500 text-sm">No historical data available</p>
-        </div>
       )}
     </div>
   );
-}
+};
+
+export default PriceChart;

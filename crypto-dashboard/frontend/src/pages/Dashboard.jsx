@@ -14,19 +14,20 @@ const formatINR = (price) => {
   return `₹${price.toFixed(4)}`;
 };
 
-const formatMarketCap = (mc) => {
-  if (!mc) return '—';
-  if (mc >= 1e13) return `₹${(mc / 1e13).toFixed(2)}T`;
-  if (mc >= 1e10) return `₹${(mc / 1e10).toFixed(2)}Kh Cr`;
-  if (mc >= 1e7) return `₹${(mc / 1e7).toFixed(2)}Cr`;
-  return `₹${mc.toLocaleString('en-IN')}`;
+const formatVolume = (vol) => {
+  if (!vol || vol <= 0) return '—';
+  if (vol >= 1e13) return `₹${(vol / 1e13).toFixed(2)}T`;
+  if (vol >= 1e10) return `₹${(vol / 1e10).toFixed(2)}Kh Cr`;
+  if (vol >= 1e7) return `₹${(vol / 1e7).toFixed(2)}Cr`;
+  if (vol >= 1e5) return `₹${(vol / 1e5).toFixed(2)}L`;
+  return `₹${vol.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
 };
 
 const SORT_OPTIONS = [
   { value: 'rank', label: 'Rank' },
   { value: 'price', label: 'Price' },
   { value: 'change24h', label: '24h Change' },
-  { value: 'marketCap', label: 'Market Cap' },
+  { value: 'volume24h', label: 'Volume 24H' },
 ];
 
 export default function Dashboard() {
@@ -85,7 +86,7 @@ export default function Dashboard() {
 
   const coinMetaMap = useMemo(() => {
     const map = {};
-    coinList.forEach((c) => { map[c.id] = c; });
+    coinList.forEach((c) => { map[c.symbol] = c; });
     return map;
   }, [coinList]);
 
@@ -93,10 +94,11 @@ export default function Dashboard() {
   const featuredCoins = useMemo(() => {
     if (prices.length === 0) return [];
     return prices.slice(0, 8).map((coin) => {
-      const meta = coinMetaMap[coin.id] || {};
+      const meta = coinMetaMap[coin.symbol] || {};
       return {
         ...meta,
         ...coin,
+        change24h: coin.change24h ?? coin.changePercent ?? meta.change24h ?? 0,
         image: meta.image || coin.image,
         rank: meta.rank ?? coin.rank,
         marketCap: coin.marketCap && coin.marketCap > 0 ? coin.marketCap : (meta.marketCap || 0),
@@ -108,15 +110,16 @@ export default function Dashboard() {
   // Full market list with live values patched in where available
   const unifiedCoinList = useMemo(() => {
     const liveMap = {};
-    prices.forEach((p) => { liveMap[p.id] = p; });
+    prices.forEach((p) => { liveMap[p.symbol] = p; });
 
     return coinList.map((coin) => {
-      const live = liveMap[coin.id];
+      const live = liveMap[coin.symbol];
       if (!live) return coin;
 
       return {
         ...coin,
         ...live,
+        change24h: live.change24h ?? live.changePercent ?? coin.change24h ?? 0,
         image: coin.image || live.image,
         rank: coin.rank ?? live.rank,
         marketCap: live.marketCap && live.marketCap > 0 ? live.marketCap : (coin.marketCap || 0),
@@ -183,7 +186,7 @@ export default function Dashboard() {
                   key={coin.id}
                   coin={coin}
                   onAddToWatchlist={handleWatchlistToggle}
-                  isInWatchlist={watchlist.includes(coin.id)}
+                  isInWatchlist={watchlist.includes(coin.symbol)}
                 />
               ))}
         </div>
@@ -236,8 +239,8 @@ export default function Dashboard() {
             <div className="col-span-2 text-right cursor-pointer hover:text-white" onClick={() => toggleSort('change24h')}>
               24h <SortIcon field="change24h" />
             </div>
-            <div className="col-span-2 text-right hidden lg:block cursor-pointer hover:text-white" onClick={() => toggleSort('marketCap')}>
-              Market Cap <SortIcon field="marketCap" />
+            <div className="col-span-2 text-right hidden lg:block cursor-pointer hover:text-white" onClick={() => toggleSort('volume24h')}>
+              Volume 24H <SortIcon field="volume24h" />
             </div>
           </div>
 
@@ -246,7 +249,7 @@ export default function Dashboard() {
             <div className="flex items-center justify-center py-16">
               <div className="flex flex-col items-center gap-3">
                 <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                <p className="text-slate-400 text-sm">Loading 250 coins...</p>
+                <p className="text-slate-400 text-sm">Loading market coins...</p>
               </div>
             </div>
           )}
@@ -254,11 +257,11 @@ export default function Dashboard() {
           {/* Coin rows */}
           {!coinListLoading && filteredCoins.map((coin) => {
             const isPositive = (coin.change24h ?? 0) >= 0;
-            const inWatchlist = watchlist.includes(coin.id);
+            const inWatchlist = watchlist.includes(coin.symbol);
             return (
               <div
-                key={coin.id}
-                onClick={() => window.location.href = `/asset/${coin.id}`}
+                key={coin.symbol}
+                onClick={() => window.location.href = `/coin/${coin.symbol}`}
                 className="grid grid-cols-12 gap-2 px-4 py-3 border-b border-[#2a2a4a] last:border-0 hover:bg-[#16213e] transition cursor-pointer items-center"
               >
                 <div className="col-span-1 text-slate-500 text-sm">{coin.rank || '—'}</div>
@@ -271,7 +274,7 @@ export default function Dashboard() {
                     </div>
                   )}
                   <div className="min-w-0">
-                    <Link to={`/asset/${coin.id}`} className="text-white text-sm font-medium hover:text-blue-400 truncate block">
+                    <Link to={`/coin/${coin.symbol}`} className="text-white text-sm font-medium hover:text-blue-400 truncate block">
                       {coin.name}
                     </Link>
                     <span className="text-slate-500 text-xs">{coin.symbol}</span>
@@ -284,9 +287,9 @@ export default function Dashboard() {
                   {coin.change24h != null ? `${isPositive ? '+' : ''}${coin.change24h.toFixed(2)}%` : '—'}
                 </div>
                 <div className="col-span-2 text-right hidden lg:flex items-center justify-end gap-2">
-                  <span className="text-slate-400 text-xs">{formatMarketCap(coin.marketCap)}</span>
+                  <span className="text-slate-400 text-xs">{formatVolume(coin.volume24h)}</span>
                   <button
-                    onClick={(e) => { e.stopPropagation(); handleWatchlistToggle(coin.id); }}
+                    onClick={(e) => { e.stopPropagation(); handleWatchlistToggle(coin.symbol); }}
                     title={inWatchlist ? 'Remove from watchlist' : 'Add to watchlist'}
                     className={`text-xs p-1 rounded-lg transition ${
                       inWatchlist ? 'text-yellow-400 hover:text-yellow-300' : 'text-slate-600 hover:text-yellow-400'

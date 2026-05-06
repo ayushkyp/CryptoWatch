@@ -1,65 +1,49 @@
 const express = require('express');
-const axios = require('axios');
+const { getCache } = require('../utils/cache');
+const { TRACKED_COINS } = require('../config/trackedCoins');
+
 const router = express.Router();
-const { setCache, getCache } = require('../utils/cache');
 
-let coinListCache = [];
-let lastFetched = null;
-const CACHE_DURATION = 60 * 60 * 1000; // 1 hour
+router.get('/', (req, res) => {
+  const latestPrices = getCache('latestPrices') || {};
 
-// GET /api/coins — top 250 coins by market cap
-router.get('/', async (req, res) => {
-  try {
-    const now = Date.now();
-    // Check module-level cache first (fastest), then shared cache
-    if (coinListCache.length > 0 && lastFetched && (now - lastFetched) < CACHE_DURATION) {
-      return res.json(coinListCache);
-    }
+  let list = Object.values(latestPrices)
+    .filter((coin) => Number.isFinite(coin?.price) && coin.price > 0)
+    .sort((a, b) => (Number(b.volume || 0) - Number(a.volume || 0)))
+    .map((coin, index) => ({
+      id: coin.id || String(coin.symbol || '').toLowerCase(),
+      name: coin.name || coin.symbol,
+      symbol: coin.symbol,
+      binanceSymbol: coin.binanceSymbol || `${coin.symbol}USDT`,
+      image: coin.image || null,
+      rank: index + 1,
+      price: Number(coin.price || 0),
+      change24h: Number(coin.change24h ?? coin.changePercent ?? 0),
+      high: Number(coin.high || 0),
+      low: Number(coin.low || 0),
+      volume24h: Number(coin.volume || 0),
+      marketCap: 0,
+    }));
 
-    // Check shared cache (written by a previous request, survives module reload)
-    const sharedCache = getCache('coinList');
-    if (sharedCache && sharedCache.length > 0 && lastFetched && (now - lastFetched) < CACHE_DURATION) {
-      coinListCache = sharedCache;
-      return res.json(coinListCache);
-    }
-
-    const response = await axios.get(
-      'https://api.coingecko.com/api/v3/coins/markets',
-      {
-        params: {
-          vs_currency: 'inr',
-          order: 'market_cap_desc',
-          per_page: 250,
-          page: 1,
-          sparkline: false,
-          price_change_percentage: '24h',
-        },
-        timeout: 15000,
-      }
-    );
-
-    coinListCache = response.data.map(coin => ({
+  // During warmup, provide a stable fallback list so UI still renders.
+  if (list.length === 0) {
+    list = TRACKED_COINS.map((coin, index) => ({
       id: coin.id,
       name: coin.name,
-      symbol: coin.symbol.toUpperCase(),
-      price: coin.current_price,
-      change24h: coin.price_change_percentage_24h,
-      marketCap: coin.market_cap,
-      volume24h: coin.total_volume,
+      symbol: coin.symbol,
+      binanceSymbol: coin.binanceSymbol,
       image: coin.image,
-      rank: coin.market_cap_rank,
+      rank: index + 1,
+      price: 0,
+      change24h: 0,
+      high: 0,
+      low: 0,
+      volume24h: 0,
+      marketCap: 0,
     }));
-    lastFetched = now;
-
-    // Store in shared cache so priceService can enrich market cap
-    setCache('coinList', coinListCache);
-
-    res.json(coinListCache);
-  } catch (error) {
-    console.error('Coin list fetch error:', error.message);
-    if (coinListCache.length > 0) return res.json(coinListCache);
-    res.status(500).json({ error: 'Failed to fetch coin list' });
   }
+
+  return res.json(list);
 });
 
 module.exports = router;

@@ -55,7 +55,7 @@ const AppRoutes = () => (
       }
     />
     <Route
-      path="/asset/:id"
+      path="/coin/:symbol"
       element={
         <ProtectedRoute>
           <AppLayout><AssetDetail /></AppLayout>

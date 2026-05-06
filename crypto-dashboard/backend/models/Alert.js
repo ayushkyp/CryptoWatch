@@ -10,6 +10,12 @@ const alertSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  symbol: {
+    type: String,
+    required: true,
+    uppercase: true,
+    trim: true,
+  },
   coinName: {
     type: String,
     required: true,

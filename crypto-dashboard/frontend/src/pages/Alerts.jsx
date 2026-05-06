@@ -7,6 +7,7 @@ import toast from 'react-hot-toast';
 import { getCoinList } from '../services/api';
 
 const formatINR = (price) => {
+  if (!price && price !== 0) return '₹—';
   if (price >= 10000000) return `₹${(price / 10000000).toFixed(2)}Cr`;
   if (price >= 100000) return `₹${(price / 100000).toFixed(2)}L`;
   if (price >= 1000) return `₹${price.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
@@ -51,10 +52,10 @@ const Alerts = () => {
 
   const activeAlerts = alerts.filter((a) => a.status === 'active');
 
-  const getPriceForCoin = (coinId) => {
-    const match = prices.find((p) => p.id === coinId);
+  const getPriceForCoin = (coinSymbol) => {
+    const match = prices.find((p) => p.symbol === coinSymbol || p.id === coinSymbol);
     if (match) return match.price;
-    const fallback = coins.find((c) => c.id === coinId);
+    const fallback = coins.find((c) => c.symbol === coinSymbol || c.id === coinSymbol);
     return fallback?.price || 0;
   };
 
@@ -62,7 +63,7 @@ const Alerts = () => {
     if (!selectedCoin) return null;
     return {
       ...selectedCoin,
-      price: getPriceForCoin(selectedCoin.id),
+      price: getPriceForCoin(selectedCoin.symbol),
     };
   }, [selectedCoin, prices, coins]);
 
@@ -187,7 +188,7 @@ const Alerts = () => {
       {selectedCoinWithLivePrice && (
         <AlertModal
           coin={selectedCoinWithLivePrice}
-          currentPrice={getPriceForCoin(selectedCoinWithLivePrice.id)}
+          currentPrice={getPriceForCoin(selectedCoinWithLivePrice.symbol)}
           coinOptions={coins}
           onCoinChange={setSelectedCoin}
           isOpen={modalOpen}

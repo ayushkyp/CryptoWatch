@@ -23,17 +23,18 @@ const AssetCard = ({ coin, onAddToWatchlist, isInWatchlist }) => {
     }
   }, [coin.price]);
 
-  const isPositive = coin.change24h >= 0;
+  const change24h = coin.change24h ?? coin.changePercent ?? 0;
+  const isPositive = change24h >= 0;
 
   const handleWatchlistClick = (e) => {
     e.stopPropagation();
-    onAddToWatchlist(coin.id);
+    onAddToWatchlist(coin.symbol);
   };
 
   return (
     <div
       className={`live-price-tile ${isPositive ? 'live-price-tile-up' : 'live-price-tile-down'} bg-[#1a1a2e] border border-[#2a2a4a] rounded-2xl p-5 shadow-lg shadow-black/50 cursor-pointer hover:bg-[#16213e] hover:scale-[1.02] transition-all duration-200 ${flashClass}`}
-      onClick={() => navigate(`/asset/${coin.id}`)}
+      onClick={() => navigate(`/coin/${coin.symbol}`)}
     >
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2 min-w-0">
@@ -65,7 +66,7 @@ const AssetCard = ({ coin, onAddToWatchlist, isInWatchlist }) => {
 
       <div className={`flex items-center gap-1 text-sm font-medium ${isPositive ? 'text-green-400' : 'text-red-400'}`}>
         <span>{isPositive ? '▲' : '▼'}</span>
-        <span>{Math.abs(coin.change24h).toFixed(2)}%</span>
+        <span>{Math.abs(change24h).toFixed(2)}%</span>
         <span className="text-slate-500 text-xs ml-1">24h</span>
       </div>
     </div>
