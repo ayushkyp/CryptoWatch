@@ -6,6 +6,48 @@ import AssetCard from '../components/ui/AssetCard';
 import SkeletonCard from '../components/ui/SkeletonCard';
 import toast from 'react-hot-toast';
 
+const toObject = (value) => (value && typeof value === 'object' ? value : null);
+
+const extractArrayPayload = (payload) => {
+  if (Array.isArray(payload)) return payload;
+  const objectPayload = toObject(payload);
+  if (!objectPayload) return [];
+
+  const candidateKeys = ['coins', 'data', 'prices', 'result', 'list'];
+  for (const key of candidateKeys) {
+    if (Array.isArray(objectPayload[key])) {
+      return objectPayload[key];
+    }
+  }
+
+  return [];
+};
+
+const toNumberOrZero = (value) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const normalizeCoinMeta = (coin, index = 0) => {
+  if (!coin || typeof coin !== 'object') return null;
+  const symbol = String(coin.symbol || '').toUpperCase();
+  if (!symbol) return null;
+
+  return {
+    ...coin,
+    symbol,
+    name: coin.name || symbol,
+    id: coin.id || symbol.toLowerCase(),
+    rank: Number.isFinite(Number(coin.rank)) ? Number(coin.rank) : index + 1,
+    price: toNumberOrZero(coin.price),
+    change24h: toNumberOrZero(coin.change24h ?? coin.changePercent),
+    high: toNumberOrZero(coin.high),
+    low: toNumberOrZero(coin.low),
+    volume24h: toNumberOrZero(coin.volume24h ?? coin.volume),
+    marketCap: toNumberOrZero(coin.marketCap),
+  };
+};
+
 const formatINR = (price) => {
   if (!price && price !== 0) return '₹—';
   if (price >= 10000000) return `₹${(price / 10000000).toFixed(2)}Cr`;
@@ -46,7 +88,10 @@ export default function Dashboard() {
       setCoinListLoading(true);
       try {
         const data = await getCoinList();
-        setCoinList(data);
+        const normalized = extractArrayPayload(data)
+          .map((coin, index) => normalizeCoinMeta(coin, index))
+          .filter(Boolean);
+        setCoinList(normalized);
       } catch (err) {
         console.error('Coin list error:', err);
         toast.error('Could not load full coin list');
@@ -62,7 +107,7 @@ export default function Dashboard() {
     const fetchWatchlist = async () => {
       try {
         const res = await getWatchlist();
-        setWatchlist(res.data.watchlist || []);
+        setWatchlist(Array.isArray(res?.data?.watchlist) ? res.data.watchlist : []);
       } catch { /* ignore */ }
     };
     fetchWatchlist();
@@ -86,14 +131,21 @@ export default function Dashboard() {
 
   const coinMetaMap = useMemo(() => {
     const map = {};
-    coinList.forEach((c) => { map[c.symbol] = c; });
+    const safeCoinList = Array.isArray(coinList) ? coinList : [];
+    safeCoinList.forEach((c) => {
+      if (c?.symbol) {
+        map[c.symbol] = c;
+      }
+    });
     return map;
   }, [coinList]);
 
   // Live prices + static metadata (image/rank/name) for top cards
   const featuredCoins = useMemo(() => {
-    if (prices.length === 0) return [];
-    return prices.slice(0, 8).map((coin) => {
+    const safePrices = Array.isArray(prices) ? prices : [];
+    if (safePrices.length === 0) return [];
+
+    return safePrices.slice(0, 8).map((coin) => {
       const meta = coinMetaMap[coin.symbol] || {};
       return {
         ...meta,
@@ -110,9 +162,16 @@ export default function Dashboard() {
   // Full market list with live values patched in where available
   const unifiedCoinList = useMemo(() => {
     const liveMap = {};
-    prices.forEach((p) => { liveMap[p.symbol] = p; });
+    const safePrices = Array.isArray(prices) ? prices : [];
+    safePrices.forEach((p) => {
+      if (p?.symbol) {
+        liveMap[p.symbol] = p;
+      }
+    });
 
-    return coinList.map((coin) => {
+    const safeCoinList = Array.isArray(coinList) ? coinList : [];
+
+    return safeCoinList.map((coin) => {
       const live = liveMap[coin.symbol];
       if (!live) return coin;
 
@@ -135,12 +194,12 @@ export default function Dashboard() {
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter(
-        (c) => c.name.toLowerCase().includes(q) || c.symbol.toLowerCase().includes(q)
+        (c) => String(c?.name || '').toLowerCase().includes(q) || String(c?.symbol || '').toLowerCase().includes(q)
       );
     }
 
     if (filterPositive) {
-      list = list.filter((c) => c.change24h > 0);
+      list = list.filter((c) => toNumberOrZero(c?.change24h) > 0);
     }
 
     list.sort((a, b) => {

@@ -6,6 +6,20 @@ import EmptyState from '../components/ui/EmptyState';
 import SkeletonCard from '../components/ui/SkeletonCard';
 import toast from 'react-hot-toast';
 
+const extractArrayPayload = (payload) => {
+  if (Array.isArray(payload)) return payload;
+  if (!payload || typeof payload !== 'object') return [];
+
+  const candidateKeys = ['coins', 'data', 'prices', 'result', 'list'];
+  for (const key of candidateKeys) {
+    if (Array.isArray(payload[key])) {
+      return payload[key];
+    }
+  }
+
+  return [];
+};
+
 const Watchlist = () => {
   const { prices, loading } = usePrices();
   const [watchlist, setWatchlist] = useState([]);
@@ -39,7 +53,7 @@ const Watchlist = () => {
   // Load coin list as fallback for watchlist items not in live prices
   useEffect(() => {
     getCoinList()
-      .then((list) => setCoinList(list))
+      .then((list) => setCoinList(extractArrayPayload(list)))
       .catch(() => {})
       .finally(() => setCoinListLoading(false));
   }, []);
@@ -80,11 +94,15 @@ const Watchlist = () => {
 
   // Merge live prices with coin list to find all watchlisted coins
   const watchedCoins = useMemo(() => {
-    return watchlist
+    const safeWatchlist = Array.isArray(watchlist) ? watchlist : [];
+    const safePrices = Array.isArray(prices) ? prices : [];
+    const safeCoinList = Array.isArray(coinList) ? coinList : [];
+
+    return safeWatchlist
       .map((symbol) => {
-        const live = prices.find((p) => p.symbol === symbol || p.id === symbol);
+        const live = safePrices.find((p) => p.symbol === symbol || p.id === symbol);
         if (live) return live;
-        return coinList.find((c) => c.symbol === symbol || c.id === symbol) || null;
+        return safeCoinList.find((c) => c.symbol === symbol || c.id === symbol) || null;
       })
       .filter(Boolean);
   }, [watchlist, prices, coinList]);
