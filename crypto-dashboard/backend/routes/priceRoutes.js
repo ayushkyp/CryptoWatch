@@ -1,21 +1,29 @@
 const express = require('express');
-const { getCache } = require('../utils/cache');
+const { getCurrentPrices } = require('../services/marketDataService');
 
 const router = express.Router();
 
-// Returns latest in-memory prices maintained by Binance websocket stream.
-router.get('/current', (req, res) => {
-  const latestPrices = getCache('latestPrices') || {};
-  const prices = Object.values(latestPrices);
+// Returns the shared market snapshot regardless of which upstream provider won.
+router.get('/current', async (req, res) => {
+  try {
+    const prices = await getCurrentPrices();
 
-  if (prices.length === 0) {
-    return res.status(503).json({
-      error: 'Live prices are warming up. Please retry in a few seconds.',
+    if (!Array.isArray(prices) || prices.length === 0) {
+      return res.status(503).json({
+        error: 'Live prices are warming up. Please retry in a few seconds.',
+        prices: [],
+      });
+    }
+
+    return res.json(prices);
+  } catch (error) {
+    const statusCode = error.response?.status || 503;
+    return res.status(statusCode).json({
+      error: 'Failed to fetch current prices',
+      details: error.message,
       prices: [],
     });
   }
-
-  return res.json(prices);
 });
 
 module.exports = router;

@@ -1,8 +1,8 @@
 /**
  * In-memory cache utility.
- * ARCHITECTURE NOTE: The Binance websocket stream writes latest market
- * snapshots here once, then all Socket.IO clients consume the same in-memory
- * object. This avoids duplicate upstream calls per connected user.
+ * ARCHITECTURE NOTE: The market data manager writes provider-normalized
+ * snapshots here once, then routes and Socket.IO clients consume the same
+ * shared object. This avoids duplicate upstream calls per connected user.
  */
 
 const cache = {};

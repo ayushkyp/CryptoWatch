@@ -1,11 +1,21 @@
 const express = require('express');
 const { getCache } = require('../utils/cache');
 const { TRACKED_COINS } = require('../config/trackedCoins');
+const { getCurrentPrices } = require('../services/marketDataService');
 
 const router = express.Router();
 
-router.get('/', (req, res) => {
-  const latestPrices = getCache('latestPrices') || {};
+router.get('/', async (req, res) => {
+  let latestPrices = getCache('latestPrices') || {};
+
+  if (Object.keys(latestPrices).length === 0) {
+    try {
+      await getCurrentPrices();
+      latestPrices = getCache('latestPrices') || {};
+    } catch (error) {
+      console.warn(`[coins] Unable to warm current prices: ${error.message}`);
+    }
+  }
 
   let list = Object.values(latestPrices)
     .filter((coin) => Number.isFinite(coin?.price) && coin.price > 0)

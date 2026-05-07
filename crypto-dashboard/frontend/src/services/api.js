@@ -1,8 +1,10 @@
 import axios from 'axios';
 
 const resolvedApiBase =
-  import.meta.env.VITE_API_URL ||
-  'https://cryptowatch-production.up.railway.app/api';
+  process.env.REACT_APP_API_URL ||
+  (process.env.NODE_ENV === 'production'
+    ? `${window.location.origin}/api`
+    : 'http://localhost:5000/api');
 
 const api = axios.create({
   baseURL: resolvedApiBase,

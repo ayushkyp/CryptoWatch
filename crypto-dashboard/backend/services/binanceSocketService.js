@@ -1,64 +1,29 @@
 const WebSocket = require('ws');
-const axios = require('axios');
-const { setCache, getCache } = require('../utils/cache');
+const { getCache } = require('../utils/cache');
 const { checkAlerts } = require('./alertService');
-const { TRACKED_BY_BINANCE } = require('../config/trackedCoins');
+const {
+  getCurrentPrices,
+  getLatestPricesMap,
+  getMarketStatus,
+  isFailoverError,
+  publishLivePrices,
+  setLiveProviderOffline,
+} = require('./marketDataService');
+const { buildMarketSnapshot, getUsdInrRate } = require('./providerUtils');
 
 const BINANCE_STREAM_URL = 'wss://stream.binance.com:9443/ws/!ticker@arr';
-const BINANCE_REST_TICKER_URL = 'https://api.binance.com/api/v3/ticker/24hr';
-
 let wsClient = null;
 let ioInstance = null;
 let reconnectTimer = null;
 let reconnectAttempts = 0;
 let streamStarted = false;
 let streamHealthTimer = null;
-let restFallbackTimer = null;
-let restFallbackActive = false;
+let pollingFallbackTimer = null;
+let pollingFallbackActive = false;
 let lastWsMessageAt = 0;
+let recentDisconnects = [];
 
-let latestPrices = {};
-let usdInrRate = 83.5;
-let usdInrFetchedAt = 0;
 let hasLoggedFirstPayload = false;
-
-const makeDefaultCoinMeta = (binanceSymbol) => {
-  const symbol = String(binanceSymbol || '').toUpperCase();
-  const baseSymbol = symbol.endsWith('USDT') ? symbol.slice(0, -4) : symbol;
-  const normalizedBase = baseSymbol || symbol;
-
-  return {
-    id: normalizedBase.toLowerCase(),
-    symbol: normalizedBase,
-    name: normalizedBase,
-    binanceSymbol: symbol,
-    image: `https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/${normalizedBase.toLowerCase()}.png`,
-  };
-};
-
-const resolveCoinMeta = (binanceSymbol) => {
-  const known = TRACKED_BY_BINANCE[binanceSymbol];
-  if (known) return known;
-  return makeDefaultCoinMeta(binanceSymbol);
-};
-
-const getUsdInrRate = async () => {
-  const sixHours = 6 * 60 * 60 * 1000;
-  if (Date.now() - usdInrFetchedAt < sixHours) return usdInrRate;
-
-  try {
-    const res = await axios.get('https://open.er-api.com/v6/latest/USD', { timeout: 6000 });
-    const nextRate = res.data?.rates?.INR;
-    if (nextRate && Number.isFinite(nextRate)) {
-      usdInrRate = nextRate;
-      usdInrFetchedAt = Date.now();
-    }
-  } catch (error) {
-    console.warn(`[binance-stream] USD/INR refresh failed: ${error.message}`);
-  }
-
-  return usdInrRate;
-};
 
 const normalizeTickers = (payload) => {
   if (Array.isArray(payload)) return payload;
@@ -70,11 +35,18 @@ const normalizeTickers = (payload) => {
 const broadcastLatestPrices = async () => {
   if (!ioInstance) return;
   try {
+    const latestPrices = getLatestPricesMap();
     ioInstance.emit('livePrices', latestPrices);
+    ioInstance.emit('marketStatus', getMarketStatus());
     await checkAlerts(latestPrices, ioInstance);
   } catch (error) {
     console.error('[binance-stream] broadcast error:', error.message);
   }
+};
+
+const emitMarketStatus = () => {
+  if (!ioInstance) return;
+  ioInstance.emit('marketStatus', getMarketStatus());
 };
 
 const handleTickerPayload = async (payload) => {
@@ -88,91 +60,86 @@ const handleTickerPayload = async (payload) => {
   }
 
   const rate = await getUsdInrRate();
-  let hasUpdate = false;
+  const priceBatch = [];
 
   for (const ticker of tickers) {
     const symbol = ticker?.s;
     if (!symbol || !symbol.endsWith('USDT')) continue;
 
-    const coin = resolveCoinMeta(symbol);
+    const snapshot = buildMarketSnapshot({
+      pairSymbol: symbol,
+      priceUsd: ticker.c,
+      change24h: ticker.P,
+      highUsd: ticker.h,
+      lowUsd: ticker.l,
+      volumeUsd: ticker.q,
+      timestamp: Date.now(),
+      rate,
+    });
 
-    const priceUsd = Number.parseFloat(ticker.c || '0');
-    const highUsd = Number.parseFloat(ticker.h || '0');
-    const lowUsd = Number.parseFloat(ticker.l || '0');
-    const quoteVolumeUsd = Number.parseFloat(ticker.q || '0');
-    const change24hPercent = Number.parseFloat(ticker.P || '0');
-
-    const priceInr = priceUsd * rate;
-    const highInr = highUsd * rate;
-    const lowInr = lowUsd * rate;
-    const volumeInr = quoteVolumeUsd * rate;
-
-    if (!Number.isFinite(priceInr) || priceInr <= 0) continue;
-
-    latestPrices[symbol] = {
-      id: coin.id,
-      symbol: coin.symbol,
-      name: coin.name,
-      binanceSymbol: coin.binanceSymbol,
-      image: coin.image,
-      price: priceInr,
-      change24h: change24hPercent,
-      changePercent: change24hPercent,
-      volume: volumeInr,
-      high: highInr,
-      low: lowInr,
-      updatedAt: Date.now(),
-    };
-
-    hasUpdate = true;
+    if (snapshot) {
+      priceBatch.push(snapshot);
+    }
   }
 
-  if (!hasUpdate) return;
+  if (priceBatch.length === 0) return;
 
-  setCache('latestPrices', latestPrices);
-  setCache('prices', Object.values(latestPrices));
+  publishLivePrices({ prices: priceBatch, providerName: 'Binance', mode: 'websocket' });
   await broadcastLatestPrices();
 };
 
-const fetchViaRestFallback = async () => {
+const fetchViaPollingFallback = async () => {
   try {
-    const res = await axios.get(BINANCE_REST_TICKER_URL, {
-      timeout: 7000,
+    const prices = await getCurrentPrices({
+      bypassCache: true,
+      providerNames: ['KuCoin', 'Bybit'],
     });
 
-    if (!Array.isArray(res.data)) return;
-
-    const payload = res.data.map((ticker) => ({
-      s: ticker?.symbol,
-      c: ticker?.lastPrice,
-      h: ticker?.highPrice,
-      l: ticker?.lowPrice,
-      q: ticker?.quoteVolume,
-      P: ticker?.priceChangePercent,
-    }));
-
-    await handleTickerPayload(payload);
+    const providerName = getMarketStatus().currentProvider || 'KuCoin';
+    publishLivePrices({ prices, providerName, mode: 'polling' });
+    await broadcastLatestPrices();
   } catch (error) {
-    console.warn(`[binance-stream] REST fallback fetch failed: ${error.message}`);
+    console.warn(`[binance-stream] polling fallback fetch failed: ${error.message}`);
   }
 };
 
-const stopRestFallback = () => {
-  if (restFallbackTimer) {
-    clearInterval(restFallbackTimer);
-    restFallbackTimer = null;
+const stopPollingFallback = () => {
+  if (pollingFallbackTimer) {
+    clearInterval(pollingFallbackTimer);
+    pollingFallbackTimer = null;
   }
-  restFallbackActive = false;
+  pollingFallbackActive = false;
 };
 
-const startRestFallback = () => {
-  if (restFallbackTimer) return;
+const startPollingFallback = () => {
+  if (pollingFallbackTimer) return;
 
-  restFallbackActive = true;
-  console.warn('[binance-stream] websocket stalled, enabling REST fallback updates');
+  pollingFallbackActive = true;
+  console.warn('[binance-stream] websocket unhealthy, enabling provider polling fallback');
+  emitMarketStatus();
 
-  fetchViaRestFallback();
-  restFallbackTimer = setInterval(fetchViaRestFallback, 5000);
+  fetchViaPollingFallback();
+  pollingFallbackTimer = setInterval(fetchViaPollingFallback, 5000);
+};
+
+const recordDisconnect = () => {
+  const cutoff = Date.now() - 2 * 60 * 1000;
+  recentDisconnects = recentDisconnects.filter((timestamp) => timestamp >= cutoff);
+  recentDisconnects.push(Date.now());
+};
+
+const shouldUsePollingFallback = () => recentDisconnects.length >= 2;
+
+const closeExistingSocket = () => {
+  if (!wsClient) return;
+
+  wsClient.removeAllListeners();
+  try {
+    wsClient.terminate();
+  } catch {
+    // Ignore socket shutdown errors.
+  }
+  wsClient = null;
 };
 
 const scheduleReconnect = () => {
@@ -192,6 +159,7 @@ const connect = () => {
     return;
   }
 
+  closeExistingSocket();
   wsClient = new WebSocket(BINANCE_STREAM_URL);
 
   wsClient.on('open', () => {
@@ -205,14 +173,15 @@ const connect = () => {
       console.log(`[binance-stream] broadcasting ${Object.keys(cached).length} cached prices`);
       ioInstance.emit('livePrices', cached);
     }
+    emitMarketStatus();
   });
 
   wsClient.on('message', async (raw) => {
     try {
       lastWsMessageAt = Date.now();
-      if (restFallbackActive) {
-        console.log('[binance-stream] websocket data resumed, disabling REST fallback');
-        stopRestFallback();
+      if (pollingFallbackActive) {
+        console.log('[binance-stream] websocket data resumed, disabling polling fallback');
+        stopPollingFallback();
       }
 
       const payload = JSON.parse(raw.toString());
@@ -224,12 +193,24 @@ const connect = () => {
 
   wsClient.on('error', (error) => {
     console.error(`[binance-stream] websocket error: ${error.message}`);
+    if (isFailoverError(error, 'websocket')) {
+      setLiveProviderOffline('Binance', error, 'degraded');
+      emitMarketStatus();
+      if (shouldUsePollingFallback()) {
+        startPollingFallback();
+      }
+    }
   });
 
   wsClient.on('close', (code, reason) => {
     const reasonText = reason ? reason.toString() : 'no reason';
     console.warn(`[binance-stream] disconnected (code=${code}, reason=${reasonText})`);
-    startRestFallback();
+    recordDisconnect();
+    setLiveProviderOffline('Binance', new Error(`Websocket closed: ${code} ${reasonText}`), 'degraded');
+    emitMarketStatus();
+    if (shouldUsePollingFallback()) {
+      startPollingFallback();
+    }
     scheduleReconnect();
   });
 };
@@ -240,7 +221,9 @@ const startStreamHealthMonitor = () => {
   streamHealthTimer = setInterval(() => {
     if (!streamStarted) return;
     if (lastWsMessageAt === 0 || Date.now() - lastWsMessageAt > 15000) {
-      startRestFallback();
+      setLiveProviderOffline('Binance', new Error('Websocket heartbeat timeout'), 'polling');
+      emitMarketStatus();
+      startPollingFallback();
     }
   }, 5000);
 };
@@ -255,6 +238,7 @@ const startBinanceStream = (io) => {
       if (cached && Object.keys(cached).length > 0) {
         ioInstance.emit('livePrices', cached);
       }
+      emitMarketStatus();
     }
     return;
   }
@@ -271,18 +255,15 @@ const stopBinanceStream = () => {
     clearInterval(streamHealthTimer);
     streamHealthTimer = null;
   }
-  stopRestFallback();
+  stopPollingFallback();
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
   }
-  if (wsClient) {
-    wsClient.terminate();
-    wsClient = null;
-  }
+  closeExistingSocket();
 };
 
-const getLatestPrices = () => latestPrices;
+const getLatestPrices = () => getLatestPricesMap();
 
 module.exports = {
   startBinanceStream,

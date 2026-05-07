@@ -1,5 +1,6 @@
 const { Server } = require('socket.io');
 const { getCache } = require('../utils/cache');
+const { getMarketStatus } = require('../services/marketDataService');
 
 let io;
 
@@ -29,6 +30,7 @@ const initSocket = (server) => {
     if (cachedPrices && Object.keys(cachedPrices).length > 0) {
       socket.emit('livePrices', cachedPrices);
     }
+    socket.emit('marketStatus', getMarketStatus());
 
     // Listen for user authentication to join their specific room
     socket.on('authenticate', (userId) => {

@@ -2,10 +2,12 @@ require('dotenv').config();
 const http = require('http');
 const express = require('express');
 const cors = require('cors');
+const mongoose = require('mongoose');
 
 const connectDB = require('./config/db');
 const { initSocket } = require('./socket/socketHandler');
 const { startBinanceStream } = require('./services/binanceSocketService');
+const { getCurrentPrices, getMarketStatus } = require('./services/marketDataService');
 
 const authRoutes = require('./routes/authRoutes');
 const watchlistRoutes = require('./routes/watchlistRoutes');
@@ -49,7 +51,13 @@ app.use('/api/coins', coinListRoutes);
 app.use('/api/history', historyRoutes);
 
 app.get('/health', (req, res) => {
-  res.json({ status: 'OK', websocket: 'binance-stream' });
+  const marketStatus = getMarketStatus();
+  res.json({
+    status: marketStatus.online ? 'OK' : 'DEGRADED',
+    websocket: marketStatus.online ? 'online' : 'offline',
+    database: mongoose.connection.readyState === 1 ? 'online' : 'offline',
+    marketData: marketStatus,
+  });
 });
 
 const server = http.createServer(app);
@@ -93,7 +101,17 @@ const listenWithRetry = () => {
 
 const start = async () => {
   try {
-    await connectDB();
+    // Market data routes can run without MongoDB, so startup should not block
+    // forever on database connectivity during local development or partial outages.
+    const databaseConnected = await connectDB();
+    if (!databaseConnected) {
+      console.warn('[startup] Continuing without database connectivity. Auth, watchlist, and alerts may be degraded.');
+    }
+    try {
+      await getCurrentPrices();
+    } catch (error) {
+      console.warn(`[startup] Initial market data warmup failed: ${error.message}`);
+    }
 
     const io = initSocket(server);
     startBinanceStream(io);
